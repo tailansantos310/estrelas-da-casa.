@@ -2,9 +2,9 @@ import streamlit as st
 import random
 import pandas as pd
 
-st.set_page_config(page_title="Estrelas da Casa", page_icon="⭐", layout="wide")
+st.set_page_config(page_title="Estrelas da Casa", page_icon="⭐", layout="wide", initial_sidebar_state="expanded")
 
-# Inicialização do Placar com 25 estrelas fixas para cada jogador
+# --- ESTADOS DA SESSÃO (SESSION STATE) ---
 if "jogadores" not in st.session_state:
     st.session_state.jogadores = {
         "TAILAN": {"estrelas": 25, "escudos": 0, "fantasmas": 0, "chefes": 0, "coringas": 0},
@@ -13,10 +13,22 @@ if "jogadores" not in st.session_state:
         "CAIO": {"estrelas": 25, "escudos": 0, "fantasmas": 0, "chefes": 0, "coringas": 0}
     }
 
-# Controle de tarefas concluídas no dia atual para não pontuar duas vezes
 if "tarefas_concluidas_hoje" not in st.session_state:
     st.session_state.tarefas_concluidas_hoje = []
+if "tarefas_fantasmas_hoje" not in st.session_state:
+    st.session_state.tarefas_fantasmas_hoje = []
+if "tarefas_chefes_hoje" not in st.session_state:
+    st.session_state.tarefas_chefes_hoje = {}
+if "punicoes_fim_de_semana" not in st.session_state:
+    st.session_state.punicoes_fim_de_semana = []
 
+# Controle do Dado Diário por Jogador
+if "dado_jogado_hoje" not in st.session_state:
+    st.session_state.dado_jogado_hoje = {j: False for j in st.session_state.jogadores.keys()}
+if "resultado_dado" not in st.session_state:
+    st.session_state.resultado_dado = None
+
+# --- ESCALAS DE TAREFAS ---
 escala_semana1 = {
     "Café manhã": {"QUA": "KARINE", "QUI": "CAIO", "SEX": "TAILAN", "SÁB": "CAROL", "DOM": "KARINE", "SEG": "CAIO", "TER": "TAILAN"},
     "Café tarde": {"QUA": "CAIO", "QUI": "CAROL", "SEX": "KARINE", "SÁB": "CAIO", "DOM": "TAILAN", "SEG": "CAROL", "TER": "KARINE"},
@@ -51,122 +63,97 @@ escala_semana2 = {
 
 st.title("⭐ ESTRELAS DA CASA - CADA UM POR SI ⭐")
 
-# --- BLOCO DE REGRAS FIXO NO TOPO DO APP ---
 with st.expander("📜 CLIQUE AQUI PARA VER AS REGRAS OFICIAIS DO JOGO", expanded=True):
     st.markdown("""
-    * **Cartões:** 1 card = 1 tarefa só.
-    * **Funcionamento:** Dado é todo dia. Após concluir a tarefa, marque na escala para atualizar o Ranking Geral.
-    * **Sequência de Turnos:** TAILAN ➔ CAROL ➔ KARINE ➔ CAIO.
-    * **Prêmio Final:** No fim de ano, quem tiver mais estrelas ganha **R$ 150,00**.
-    
-    ### 🎲 Efeitos do Dado Diário
-    * **Dado 1:** Perde 1 estrela. | **Dado 2:** Nada acontece. | **Dado 3:** Ganha +1 estrela.
-    * **Dado 4:** Ganha **🛡️ ESCUDO** (Não perde estrela por 1 tarefa não feita).
-    * **Dado 5:** Ganha **👻 FANTASMA** (Faz 1 tarefa sumir).
-    * **Dado 6:** Ganha **👑 CHEFE** (Manda outra pessoa fazer 1 tarefa sua).
-    * **🃏 CORINGA:** Vira Fantasma, Escudo ou Chefe (Não vira Sorte).
-    
-    ### 🔓 Desbloqueio por Metas de Estrelas
-    * **35 estrelas:** 👻 FANTASMA | **45 estrelas:** 🛡️ ESCUDO | **55 estrelas:** 👑 CHEFE | **65 estrelas:** 🃏 CORINGA
+    * **Cartões:** 1 card = 1 tarefa só. | **Dado é todo dia.**
+    * **⚠️ PUNIÇÃO SEMANAL:** Quem deixar de fazer uma tarefa perderá uma estrela (**-1 ⭐**) e fará a tarefa do próximo participante no fim de semana!
+    * **🎲 EFEITOS DO DADO DIÁRIO:**
+        * **Face 1:** Perde 1 estrela automaticamente.
+        * **Face 2:** Nada acontece. Aguarde o próximo dia.
+        * **Face 3:** +1 Estrela & Ganha 🛡️ ESCUDO (Evita perda de estrela se falhar em uma tarefa).
+        * **Face 4:** Ganha 👻 FANTASMA (Oculta e cancela uma tarefa sua no dia).
+        * **Face 5:** Ganha 👑 CHEFE (Delega uma tarefa sua para outro participante fazer).
+        * **Face 6:** Ganha 🃏 CORINGA (Você escolhe se quer usar o Escudo, Fantasma ou Chefe).
+    * **Metas de Evolução:** 35 ⭐ = 👻 FANTASMA | 45 ⭐ = 🛡️ ESCUDO | 55 ⭐ = 👑 CHEFE | 65 ⭐ = 🃏 CORINGA
+    * **Fim de ano:** Quem tiver mais estrelas ganha **R$ 150**.
     """)
 
 st.write("---")
 
-# Identificação rápida do participante
 st.sidebar.header("👤 Quem está mexendo?")
 jogador_atual = st.sidebar.selectbox("Escolha seu nome:", ["Selecione...", "TAILAN", "CAROL", "KARINE", "CAIO"])
 
-# Abas principais
-aba_escala, aba_ranking, aba_dados = st.tabs([
-    "📅 Marcar Tarefas", "🏆 Ranking Geral", "🎲 Dado Diário"
-])
+# Sistema de Reset de Turno Diário na Barra Lateral (Para limpar dados jogados e tarefas concluídas)
+if st.sidebar.button("🔄 Virar o Dia / Reset Diário"):
+    st.session_state.tarefas_concluidas_hoje = []
+    st.session_state.tarefas_fantasmas_hoje = []
+    st.session_state.tarefas_chefes_hoje = {}
+    st.session_state.dado_jogado_hoje = {j: False for j in st.session_state.jogadores.keys()}
+    st.session_state.resultado_dado = None
+    st.sidebar.success("Dia virado com sucesso!")
+    st.rerun()
 
-# --- ABA 1: MARCAR TAREFAS ---
+aba_escala, aba_ranking, aba_dados = st.tabs(["📅 Marcar Tarefas", "🏆 Ranking Geral", "🎲 Dado & Cartas"])
+
+# --- ABA 1: TAREFAS & PUNIÇÕES ---
 with aba_escala:
     st.header("📅 Escala de Tarefas do Dia")
-    
     col1, col2 = st.columns(2)
-    with col1:
-        semana_sel = st.radio("Selecione a Semana:", ["Semana 1", "Semana 2"], horizontal=True)
-    with col2:
-        dia_sel = st.selectbox("Selecione o Dia:", ["QUA", "QUI", "SEX", "SÁB", "DOM", "SEG", "TER"])
-        
+    with col1: semana_sel = st.radio("Selecione a Semana:", ["Semana 1", "Semana 2"], horizontal=True)
+    with col2: dia_sel = st.selectbox("Selecione o Dia:", ["QUA", "QUI", "SEX", "SÁB", "DOM", "SEG", "TER"])
+    
     escala_ativa = escala_semana1 if semana_sel == "Semana 1" else escala_semana2
     
-    st.subheader("📋 Suas Obrigações do Dia")
+    st.subheader("📋 Suas Obrigações")
     if jogador_atual == "Selecione...":
-        st.warning("👉 Por favor, selecione seu nome na barra lateral esquerda para conseguir pontuar!")
+        st.warning("👉 Selecione seu nome na barra lateral para pontuar.")
     else:
-        st.write(f"Olá **{jogador_atual}**, abaixo estão as suas tarefas escaladas para hoje:")
-        
         alguma_tarefa = False
+        
         for tarefa, dias in escala_ativa.items():
-            responsavel = dias[dia_sel]
+            responsavel_original = dias[dia_sel]
+            if responsavel_original == "-":
+                continue
+                
+            chave_busca = f"{semana_sel}_{dia_sel}_{tarefa}"
+            responsavel_atual = st.session_state.tarefas_chefes_hoje.get(chave_busca, responsavel_original)
             
-            if responsavel == jogador_atual:
+            if responsavel_atual == jogador_atual:
                 alguma_tarefa = True
                 chave_tarefa = f"{semana_sel}_{dia_sel}_{tarefa}_{jogador_atual}"
                 
-                col_txt, col_btn = st.columns([3, 1])
-                with col_txt:
-                    st.markdown(f"### ✨ {tarefa}")
-                with col_btn:
-                    if chave_tarefa in st.session_state.tarefas_concluidas_hoje:
-                        st.success("✅ Concluída! (+1 ⭐)")
-                    else:
-                        if st.button("Concluí! ⭐", key=chave_tarefa):
-                            st.session_state.jogadores[jogador_atual]["estrelas"] += 1
-                            st.session_state.tarefas_concluidas_hoje.append(chave_tarefa)
-                            st.toast(f"Parabéns! +1 estrela adicionada para {jogador_atual}!", icon="⭐")
-                            st.rerun()
-                            
-        if not alguma_tarefa:
-            st.info("Você não tem nenhuma tarefa escalada para esse dia!")
+                if chave_busca in st.session_state.tarefas_fantasmas_hoje:
+                    st.markdown(f"### 👻 ~~{tarefa}~~ (Sumiu com carta Fantasma!)")
+                else:
+                    col_txt, col_btn = st.columns([3, 1])
+                    with col_txt:
+                        txt_exibir = f"### ✨ {tarefa}"
+                        if responsavel_original != jogador_atual:
+                            txt_exibir += f" *(Mandada por {responsavel_original} 👑)*"
+                        st.markdown(txt_exibir)
+                    with col_btn:
+                        if chave_tarefa in st.session_state.tarefas_concluidas_hoje:
+                            st.success("✅ Concluída!")
+                        else:
+                            if st.button("Concluí! ⭐", key=chave_tarefa):
+                                st.session_state.jogadores[jogador_atual]["estrelas"] += 1
+                                st.session_state.tarefas_concluidas_hoje.append(chave_tarefa)
+                                st.rerun()
 
-    st.write("---")
-    st.subheader("👀 Olhar Escala Completa")
-    lista_completa = [{"Tarefa": t, "Responsável": d[dia_sel]} for t, d in escala_ativa.items()]
-    st.table(pd.DataFrame(lista_completa))
+        if dia_sel in ["SÁB", "DOM"]:
+            for punicao in st.session_state.punicoes_fim_de_semana:
+                if punicao["culpado"] == jogador_atual and punicao["dia_aplicar"] == dia_sel:
+                    alguma_tarefa = True
+                    chave_punicao = f"punir_{punicao['culpado']}_{punicao['tarefa']}_{punicao['dia_aplicar']}"
+                    
+                    col_txt, col_btn = st.columns([3, 1])
+                    with col_txt:
+                        st.markdown(f"### ⚠️ [PUNIÇÃO] Executar: **{punicao['tarefa']}** *(Pertencia a {punicao['dono_original']})*")
+                    with col_btn:
+                        if chave_punicao in st.session_state.tarefas_concluidas_hoje:
+                            st.success("✅ Punição Cumprida!")
+                        else:
+                            if st.button("Cumpri Punição!", key=chave_punicao):
+                                st.session_state.tarefas_concluidas_hoje.append(chave_punicao)
+                                st.rerun()
 
-# --- ABA 2: RANKING GERAL ---
-with aba_ranking:
-    st.header("🏆 Placar das Estrelas")
-    
-    dados_tabela = []
-    for jog, infos in st.session_state.jogadores.items():
-        poderes = []
-        if infos["estrelas"] >= 35: poderes.append("👻 FANTASMA")
-        if infos["estrelas"] >= 45: poderes.append("🛡️ ESCUDO")
-        if infos["estrelas"] >= 55: poderes.append("👑 CHEFE")
-        if infos["estrelas"] >= 65: poderes.append("🃏 CORINGA")
-        
-        dados_tabela.append({
-            "Jogador": jog, 
-            "Estrelas ⭐": infos["estrelas"],
-            "Poderes Liberados 🔓": ", ".join(poderes) if poderes else "Nenhum",
-            "🛡️ Escudos": infos["escudos"], 
-            "👻 Fantasmas": infos["fantasmas"], 
-            "👑 Chefes": infos["chefes"]
-        })
-    st.table(pd.DataFrame(dados_tabela).sort_values(by="Estrelas ⭐", ascending=False))
-
-# --- ABA 3: DADO DIÁRIO ---
-with aba_dados:
-    st.header("🎲 Rodar o Dado Diário")
-    if jogador_atual == "Selecione...":
-        st.warning("👉 Selecione seu nome na barra lateral para poder rodar o dado.")
-    else:
-        st.write(f"Rolando dado para o usuário ativo: **{jogador_atual}**")
-        if st.button("🎲 Lançar Meu Dado"):
-            num = random.randint(1, 6)
-            st.subheader(f"Resultado do Dado: {num}")
-            if num == 1: 
-                st.session_state.jogadores[jogador_atual]["estrelas"] -= 1
-                st.error("Perdeu 1 estrela!")
-            elif num == 3: 
-                st.session_state.jogadores[jogador_atual]["estrelas"] += 1
-                st.success("Ganhou +1 estrela!")
-            elif num == 4: st.session_state.jogadores[jogador_atual]["escudos"] += 1
-            elif num == 5: st.session_state.jogadores[jogador_atual]["fantasmas"] += 1
-            elif num == 6: st.session_state.jogadores[job_atual]["chefes"] += 1
-            st.rerun()
