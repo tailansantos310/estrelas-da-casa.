@@ -1,2 +1,2 @@
 # estrelas-da-casa.
-App do jogo Estrelas da Casa
+App do jogo das Estrelas 
